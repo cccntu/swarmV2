@@ -1,6 +1,29 @@
 ![Swarm Logo](assets/logo.png)
 
-# Swarm (experimental, educational)
+# Swarm V2 (experimental, educational)
+
+This is a fork of the original Swarm library with some changes to the codebase.
+The only change is to add a avoid putting words from an agent into another agent's mouth.
+See `swarm/core.py` for the changes.
+
+You can install this fork and test it out with the following commands:
+
+```shell
+git clone https://github.com/cccntu/swarm2.git
+cd swarm2
+pip install -e .
+
+cd examples/basic/
+
+# Try the new agent handoff test
+python agent_handoff_test.py
+
+# and compare with the original
+SWARM_V2=0 python agent_handoff_test.py
+```
+
+Text below are from the original repo README at https://github.com/openai/swarm
+---
 
 An educational framework exploring ergonomic, lightweight multi-agent orchestration.
 

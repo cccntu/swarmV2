@@ -23,6 +23,63 @@ from .types import (
 __CTX_VARS_NAME__ = "context_variables"
 
 
+def format_history_for_agent(messages: List, current_agent: str):
+    new_history = []
+    messages_not_generated_by_current_agent = []
+    last_user_message = None
+    def format_history(buffer):
+        messages_str = []
+        for message in buffer:
+            if message["role"] == "user":
+                messages_str.append(f'<message role="user">{message["content"]}</message>')
+            elif message["role"] == "assistant" and message.get("content") is not None:
+                messages_str.append(f'<message role="assistant" sender="{message["sender"]}">{message["content"]}</message>')
+        return f"<history>{'\n\t'.join(messages_str)}</history>"
+    history_agent = None
+    for i, message in enumerate(messages):
+        if message["role"] in ["system", "developer"]:
+            new_history.append(message)
+        elif message["role"] == "user":
+            last_user_message = message
+        elif message["role"] == "assistant":
+            if message['sender'] == current_agent:
+                history_agent = message['sender']
+                if messages_not_generated_by_current_agent:
+                    if last_user_message is not None:
+                        last_user_message['content'] = format_history(messages_not_generated_by_current_agent) + last_user_message['content']
+                    else:
+                        last_user_message = {'role': 'user', 'content': format_history(messages_not_generated_by_current_agent)}
+                    messages_not_generated_by_current_agent = []
+                if last_user_message:
+                    new_history.append(last_user_message)
+                    last_user_message = None
+                new_history.append(message)
+            else:
+                history_agent = message['sender']
+                if last_user_message:
+                    messages_not_generated_by_current_agent.append(last_user_message)
+                    last_user_message = None
+                messages_not_generated_by_current_agent.append(message)
+        elif message["role"] == "tool":
+            # tool doesn't have a sender so we need to use `current_agent` to keep track of the agent in the history
+            if history_agent == current_agent:
+                # we keep them
+                new_history.append(message)
+            else:
+                # we don't decide later whether to render the tool call or not
+                messages_not_generated_by_current_agent.append(message)
+        else:
+            raise ValueError(f"Unknown message role: {message['role']}")
+    if messages_not_generated_by_current_agent:
+        if last_user_message is not None:
+            last_user_message['content'] = format_history(messages_not_generated_by_current_agent) + last_user_message['content']
+        else:
+            last_user_message = {'role': 'user', 'content': format_history(messages_not_generated_by_current_agent)}
+        messages_not_generated_by_current_agent = []
+    if last_user_message:
+        new_history.append(last_user_message)
+    return new_history
+
 class Swarm:
     def __init__(self, client=None):
         if not client:
@@ -55,9 +112,20 @@ class Swarm:
             if __CTX_VARS_NAME__ in params["required"]:
                 params["required"].remove(__CTX_VARS_NAME__)
 
+        import os
+        if os.environ.get("SWARM_V2", "1") == "0":
+            messages_for_agent = messages
+        else:
+            messages_for_agent = format_history_for_agent(messages, agent.name)
+        if debug:
+            try:
+                import rich
+                rich.print(f'messages_for_agent {agent.name}: {json.dumps(messages_for_agent, indent=2)}')
+            except ImportError:
+                debug_print(debug, f'messages_for_agent {agent.name}: {messages_for_agent}')
         create_params = {
             "model": model_override or agent.model,
-            "messages": messages,
+            "messages": messages_for_agent,
             "tools": tools or None,
             "tool_choice": agent.tool_choice,
             "stream": stream,
