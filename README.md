@@ -2,11 +2,159 @@
 
 # Swarm V2 (experimental, educational)
 
-This is a fork of the original Swarm library with some changes to the codebase.
-The only change is to add a avoid putting words from an agent into another agent's mouth.
-See `swarm/core.py` for the changes.
+This is a fork of the original Swarm repo [openai/swarm](https://github.com/openai/swarm) that improves how message history is handled during agent handoffs.
 
-You can install this fork and test it out with the following commands:
+## Key Improvement: Message History Handling
+
+In the original Swarm, when one agent hands off to another, all previous messages (including those from other agents) are kept in the message history as regular assistant messages. This can be problematic since messages from other agents may not match the current agent's expected behavior and training distribution.
+
+This fork solves this by:
+1. Identifying messages from other agents
+2. Reformatting those messages as part of the next user message when sending to a new agent
+3. Only keeping the current agent's own messages as assistant messages
+
+This ensures each agent only sees its own messages as assistant messages, maintaining consistency with its training distribution.
+
+See `swarm/core.py` for implementation details.
+
+## Example
+
+This example demonstrates a simple handoff between two language-specific agents:
+
+```python
+client = Swarm()
+
+english_agent = Agent(
+    name="English Agent",
+    instructions="You only speak English.",
+)
+
+spanish_agent = Agent(
+    name="Spanish Agent",
+    instructions="You only speak Spanish.",
+)
+
+
+def transfer_to_spanish_agent():
+    """Transfer spanish speaking users immediately."""
+    return spanish_agent
+
+def transfer_to_english_agent():
+    """Transfer english speaking users immediately."""
+    return english_agent
+
+
+english_agent.functions.append(transfer_to_spanish_agent)
+spanish_agent.functions.append(transfer_to_english_agent)
+```
+
+To demonstrate the handoff behavior, we'll create a conversation that switches between agents:
+
+```python
+messages = []
+agent = english_agent
+inputs = [
+   'Hola', # triggers handoff to spanish agent
+   'tell me a english joke', # triggers handoff back to english agent
+]
+for input in inputs:
+   messages.append({"role": "user", "content": input})
+   response = client.run(agent=agent, messages=messages, debug=True)
+   print('Input:', input)
+   print("response:", response.messages[-1]["content"])
+   agent = response.agent
+   messages.extend(response.messages)
+```
+
+### Message Flow Details
+
+1. Initial Request to English Agent:
+When the English agent receives the first message, it sees:
+
+```json
+[
+  {
+    "role": "system",
+    "content": "You only speak English."
+  },
+  {
+    "role": "user",
+    "content": "Hola"
+  }
+]
+```
+
+Since the input is in Spanish, the English agent initiates a handoff to the Spanish agent.
+
+2. Handoff to Spanish Agent:
+The Spanish agent then receives the conversation with properly formatted history:
+
+```json
+[
+  {
+    "role": "system",
+    "content": "You only speak Spanish."
+  },
+  {
+    "role": "user",
+    "content": "<history><message role=\"user\">Hola</message></history>"
+  }
+]
+```
+
+3. Return to English Agent:
+When the user requests an English joke, the Spanish agent hands off back to the English agent. The English agent receives the full context:
+
+```json
+[
+  {
+    "role": "system",
+    "content": "You only speak English."
+  },
+  {
+    "role": "user",
+    "content": "Hola"
+  },
+  {
+    "content": null,
+    "refusal": null,
+    "role": "assistant",
+    "audio": null,
+    "function_call": null,
+    "tool_calls": [
+      {
+        "id": "call_ppSedyV5rB7lnWN52YXo2UsF",
+        "function": {
+          "arguments": "{}",
+          "name": "transfer_to_spanish_agent"
+        },
+        "type": "function"
+      }
+    ],
+    "sender": "English Agent"
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_ppSedyV5rB7lnWN52YXo2UsF",
+    "tool_name": "transfer_to_spanish_agent",
+    "content": "{\"assistant\": \"Spanish Agent\"}"
+  },
+  {
+    "role": "user",
+    "content": "<history><message role=\"assistant\" sender=\"Spanish Agent\">¡Hola! ¿Cómo puedo ayudarte hoy?</message>\n\t<message
+role=\"user\">tell me a english joke</message></history>"
+  }
+]
+```
+
+Key points about the message flow:
+- Each agent only sees its own previous messages as assistant messages
+- Messages from other agents are included as part of the conversation history
+- The handoff mechanism maintains conversation context while preserving proper message attribution
+
+## Installation
+
+You can try this improved version of Swarm with the following commands:
 
 ```shell
 git clone https://github.com/cccntu/swarm2.git
@@ -15,10 +163,10 @@ pip install -e .
 
 cd examples/basic/
 
-# Try the new agent handoff test
+# Try the new agent handoff behavior
 python agent_handoff_test.py
 
-# and compare with the original
+# Compare with original behavior
 SWARM_V2=0 python agent_handoff_test.py
 ```
 
