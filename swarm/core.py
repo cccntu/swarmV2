@@ -120,7 +120,7 @@ class Swarm:
         if debug:
             try:
                 import rich
-                rich.print(f'messages_for_agent {agent.name}: {json.dumps(messages_for_agent, indent=2)}')
+                rich.print(f'messages_for_agent {agent.name}: {json.dumps(messages_for_agent, indent=2, ensure_ascii=False)}')
             except ImportError:
                 debug_print(debug, f'messages_for_agent {agent.name}: {messages_for_agent}')
         create_params = {
